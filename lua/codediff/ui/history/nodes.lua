@@ -98,6 +98,8 @@ function M.create_list_file_nodes(files, commit_hash, git_root)
         commit_hash = commit_hash,
         is_last = i == #files,
         indent_state = { i == #files },
+        insertions = file.insertions,
+        deletions = file.deletions,
       },
     })
   end
@@ -203,6 +205,8 @@ function M.create_tree_file_nodes(files, commit_hash, git_root)
             git_root = git_root,
             commit_hash = commit_hash,
             indent_state = node_indent_state,
+            insertions = file.insertions,
+            deletions = file.deletions,
           },
         })
       end
@@ -371,6 +375,14 @@ function M.prepare_node(node, max_width, selected_commit, selected_file, is_sing
         line:append(directory .. "/", get_hl("Comment"))
       end
       line:append(filename, get_hl("Normal"))
+    end
+
+    -- Insertion/deletion stats
+    if data.insertions ~= nil or data.deletions ~= nil then
+      line:append(" ", get_hl("Normal"))
+      line:append("+" .. tostring(data.insertions or 0), get_hl("CodeDiffStatInsertions"))
+      line:append(" ", get_hl("Normal"))
+      line:append("-" .. tostring(data.deletions or 0), get_hl("CodeDiffStatDeletions"))
     end
 
     -- Pad with spaces to fill full line width when selected
