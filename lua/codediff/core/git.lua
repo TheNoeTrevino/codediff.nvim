@@ -1001,14 +1001,18 @@ end
 -- callback: function(err, files) where files is array of:
 --   { path, status, old_path }
 function M.get_commit_files(commit_hash, git_root, callback)
-  run_git_async({ "diff-tree", "--no-commit-id", "--name-status", "-r", "-M", commit_hash }, { cwd = git_root }, function(err, output)
-    if err then
-      callback(err, nil)
+  local pending = 2
+  local done = false
+  local results = {}
+
+  local function on_done()
+    if done then
       return
     end
+    done = true
 
     local files = {}
-    for line in output:gmatch("[^\n]+") do
+    for line in results.name_status:gmatch("[^\n]+") do
       local parts = vim.split(line, "\t")
       if #parts >= 2 then
         local status = parts[1]:sub(1, 1)
@@ -1029,8 +1033,49 @@ function M.get_commit_files(commit_hash, git_root, callback)
       end
     end
 
+    local stats_map = parse_numstat(results.numstat or "")
+    for _, record in ipairs(files) do
+      local stats = stats_map[record.path]
+      if stats then
+        record.insertions = stats.insertions
+        record.deletions = stats.deletions
+      end
+    end
+
     callback(nil, files)
-  end)
+  end
+
+  local function decrement()
+    pending = pending - 1
+    if pending == 0 then
+      on_done()
+    end
+  end
+
+  run_git_async(
+    { "diff-tree", "--no-commit-id", "--name-status", "-r", "-M", commit_hash },
+    { cwd = git_root },
+    function(err, output)
+      if err then
+        if not done then
+          done = true
+          callback(err, nil)
+        end
+        return
+      end
+      results.name_status = output
+      decrement()
+    end
+  )
+
+  run_git_async(
+    { "diff-tree", "--no-commit-id", "--numstat", "-r", "-M", commit_hash },
+    { cwd = git_root },
+    function(err, output)
+      results.numstat = err and "" or output
+      decrement()
+    end
+  )
 end
 
 -- Get merge-base between two revisions (async)
