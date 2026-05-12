@@ -15,6 +15,29 @@ local function unquote_path(path)
   return path
 end
 
+local function parse_numstat(output)
+  local result = {}
+  for line in (output .. "\n"):gmatch("([^\n]*)\n") do
+    local ins, del, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
+    if not (ins and del and path) then goto continue end
+    if ins == "-" then goto continue end -- binary files
+
+    if path:match("{.*=>.*}") then
+      local prefix, _, new, suffix = path:match("^(.*)%{(.-)%s*=>%s*(.-)%}(.*)$")
+      if prefix then
+        if new == "" and suffix:sub(1, 1) == "/" then
+          suffix = suffix:sub(2)
+        end
+        path = prefix .. new .. suffix
+      end
+    end
+
+    result[path] = { insertions = tonumber(ins), deletions = tonumber(del) }
+    ::continue::
+  end
+  return result
+end
+
 -- LRU Cache for git file content
 -- Stores recently fetched file content to avoid redundant git calls
 local ContentCache = {}
@@ -334,64 +357,127 @@ end
 --   conflicts = { { path = "file.txt", status = "!" } }
 -- }
 function M.get_status(git_root, callback)
-  run_git_async(
-    { "status", "--porcelain", "-uall", "-M" }, -- -M to detect renames
-    { cwd = git_root },
-    function(err, output)
-      if err then
-        callback(err, nil)
-        return
-      end
+  local pending = 3
+  local done = false
+  local results = {}
 
-      local result = {
-        unstaged = {},
-        staged = {},
-        conflicts = {},
-      }
+  local function on_done()
+    if done then
+      return
+    end
+    done = true
 
-      for line in output:gmatch("[^\r\n]+") do
-        if #line >= 3 then
-          local index_status = line:sub(1, 1)
-          local worktree_status = line:sub(2, 2)
-          local path_part = unquote_path(line:sub(4))
+    local status_output = results.status
+    local result = {
+      unstaged = {},
+      staged = {},
+      conflicts = {},
+    }
 
-          -- Handle renames: "old_path -> new_path"
-          local old_path, new_path = path_part:match("^(.+) %-> (.+)$")
-          local path = old_path and new_path or path_part -- Use new_path for display if rename
-          local is_rename = old_path ~= nil
+    for line in status_output:gmatch("[^\r\n]+") do
+      if #line >= 3 then
+        local index_status = line:sub(1, 1)
+        local worktree_status = line:sub(2, 2)
+        local path_part = unquote_path(line:sub(4))
 
-          -- Check for merge conflicts first (takes priority)
-          if is_conflict_status(index_status, worktree_status) then
-            table.insert(result.conflicts, {
+        -- Handle renames: "old_path -> new_path"
+        local old_path, new_path = path_part:match("^(.+) %-> (.+)$")
+        local path = old_path and new_path or path_part -- Use new_path for display if rename
+        local is_rename = old_path ~= nil
+
+        -- Check for merge conflicts first (takes priority)
+        if is_conflict_status(index_status, worktree_status) then
+          table.insert(result.conflicts, {
+            path = path,
+            status = "!", -- Use ! symbol for conflicts
+            conflict_type = index_status .. worktree_status, -- Store original status (e.g., "UU", "AA")
+          })
+        else
+          -- Staged changes (index has changes)
+          if index_status ~= " " and index_status ~= "?" then
+            table.insert(result.staged, {
               path = path,
-              status = "!", -- Use ! symbol for conflicts
-              conflict_type = index_status .. worktree_status, -- Store original status (e.g., "UU", "AA")
+              status = index_status,
+              old_path = is_rename and old_path or nil, -- Store old path if rename
             })
-          else
-            -- Staged changes (index has changes)
-            if index_status ~= " " and index_status ~= "?" then
-              table.insert(result.staged, {
-                path = path,
-                status = index_status,
-                old_path = is_rename and old_path or nil, -- Store old path if rename
-              })
-            end
+          end
 
-            -- Unstaged changes (worktree has changes)
-            if worktree_status ~= " " then
-              table.insert(result.unstaged, {
-                path = path,
-                status = worktree_status == "?" and "??" or worktree_status,
-                old_path = is_rename and old_path or nil,
-              })
-            end
+          -- Unstaged changes (worktree has changes)
+          if worktree_status ~= " " then
+            table.insert(result.unstaged, {
+              path = path,
+              status = worktree_status == "?" and "??" or worktree_status,
+              old_path = is_rename and old_path or nil, -- Store old path if rename
+            })
           end
         end
       end
-
-      callback(nil, result)
     end
-  )
+
+    local unstaged_map = parse_numstat(results.unstaged_numstat or "")
+    local staged_map = parse_numstat(results.staged_numstat or "")
+
+    for _, record in ipairs(result.unstaged) do
+      local stats = unstaged_map[record.path]
+      if stats then
+        record.insertions = stats.insertions
+        record.deletions = stats.deletions
+      end
+    end
+
+    for _, record in ipairs(result.staged) do
+      local stats = staged_map[record.path]
+      if stats then
+        record.insertions = stats.insertions
+        record.deletions = stats.deletions
+      end
+    end
+
+    for _, record in ipairs(result.unstaged) do
+      if record.status == "??" then
+        local full_path = git_root .. "/" .. record.path
+        local ok, lines = pcall(vim.fn.readfile, full_path)
+        if ok and lines then
+          record.insertions = #lines
+          record.deletions = 0
+        else
+          record.insertions = 0
+          record.deletions = 0
+        end
+      end
+    end
+
+    callback(nil, result)
+  end
+
+  local function decrement()
+    pending = pending - 1
+    if pending == 0 then
+      on_done()
+    end
+  end
+
+  run_git_async({ "status", "--porcelain", "-uall", "-M" }, { cwd = git_root }, function(err, output)
+    if err then
+      if not done then
+        done = true
+        callback(err, nil)
+      end
+      return
+    end
+    results.status = output
+    decrement()
+  end)
+
+  run_git_async({ "diff", "--numstat", "-M" }, { cwd = git_root }, function(err, output)
+    results.unstaged_numstat = err and "" or output
+    decrement()
+  end)
+
+  run_git_async({ "diff", "--cached", "--numstat", "-M" }, { cwd = git_root }, function(err, output)
+    results.staged_numstat = err and "" or output
+    decrement()
+  end)
 end
 
 -- Get diff between a revision and working tree (async)

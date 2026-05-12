@@ -106,6 +106,8 @@ function M.create_file_nodes(files, git_root, group)
         status_color = status_info.color,
         git_root = git_root,
         group = group,
+        insertions = file.insertions,
+        deletions = file.deletions,
       },
     })
   end
@@ -230,6 +232,8 @@ function M.create_tree_file_nodes(files, git_root, group)
             git_root = git_root,
             group = group,
             indent_state = node_indent_state,
+            insertions = file.insertions,
+            deletions = file.deletions,
           },
         })
       end
@@ -345,6 +349,11 @@ function M.prepare_node(node, max_width, selected_path, selected_group)
     -- Status symbol at the end (e.g., "M", "D", "??")
     local status_symbol = data.status_symbol or ""
 
+    local stats_string = ""
+    if data.insertions ~= nil or data.deletions ~= nil then
+      stats_string = string.format("+%d -%d ", data.insertions or 0, data.deletions or 0)
+    end
+
     -- Split path into filename and directory
     local full_path = data.path or node.text
     local filename = full_path:match("([^/]+)$") or full_path
@@ -353,7 +362,8 @@ function M.prepare_node(node, max_width, selected_path, selected_group)
 
     -- Calculate how much width we've used and reserve for status
     local used_width = vim.fn.strdisplaywidth(indent) + vim.fn.strdisplaywidth(icon_part)
-    local status_reserve = vim.fn.strdisplaywidth(status_symbol) + 3 -- 2 spaces before + 1 space after status
+    local stats_width = vim.fn.strdisplaywidth(stats_string)
+    local status_reserve = vim.fn.strdisplaywidth(status_symbol) + stats_width + 3 -- 2 spaces before + 1 space after status
     local available_for_content = max_width - used_width - status_reserve
 
     -- Show: filename + full directory path, truncate directory from left if needed
@@ -399,6 +409,14 @@ function M.prepare_node(node, max_width, selected_path, selected_group)
     local padding_needed = available_for_content - content_len + 2
     if padding_needed > 0 then
       line:append(string.rep(" ", padding_needed), get_hl("Normal"))
+    end
+    if stats_string ~= "" then
+      local ins = tostring(data.insertions or 0)
+      local del = tostring(data.deletions or 0)
+      line:append("+" .. ins, get_hl("CodeDiffStatInsertions"))
+      line:append(" ", get_hl("Normal"))
+      line:append("-" .. del, get_hl("CodeDiffStatDeletions"))
+      line:append(" ", get_hl("Normal"))
     end
     line:append(status_symbol, get_hl(data.status_color))
     line:append(" ", get_hl("Normal")) -- Right padding (matches status_reserve calculation)

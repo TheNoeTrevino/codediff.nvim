@@ -174,6 +174,16 @@ function M.setup()
     default = true,
   })
 
+  vim.api.nvim_set_hl(0, "CodeDiffStatInsertions", {
+    link = "DiagnosticOk",
+    default = true,
+  })
+
+  vim.api.nvim_set_hl(0, "CodeDiffStatDeletions", {
+    link = "DiagnosticError",
+    default = true,
+  })
+
   -- Explorer git status highlights (customizable, like diffview.nvim)
   vim.api.nvim_set_hl(0, "CodeDiffStatusAdded", { link = "DiagnosticOk", default = true })
   vim.api.nvim_set_hl(0, "CodeDiffStatusModified", { link = "DiagnosticWarn", default = true })
