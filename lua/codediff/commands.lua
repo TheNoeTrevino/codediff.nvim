@@ -2,7 +2,7 @@
 local M = {}
 
 -- Subcommands available for :CodeDiff
-M.SUBCOMMANDS = { "merge", "file", "dir", "history", "install" }
+M.SUBCOMMANDS = { "merge", "file", "dir", "history", "review", "install" }
 
 local git = require("codediff.core.git")
 local lifecycle = require("codediff.ui.lifecycle")
@@ -484,6 +484,90 @@ local function handle_explorer_merge_base(base_rev, target_rev, global_opts)
   end)
 end
 
+-- Handle review mode: resolves merge-base, fetches commit list and file list in parallel,
+-- then hands off to the review render module.
+-- base: left-side ref (e.g. "main")
+-- target: right-side ref (e.g. "feature/foo")
+local function handle_review(base, target)
+  local current_buf = vim.api.nvim_get_current_buf()
+  local current_file = vim.api.nvim_buf_get_name(current_buf)
+  local cwd = vim.fn.getcwd()
+  local buftype = vim.api.nvim_get_option_value("buftype", { buf = current_buf })
+  local path_for_root = buftype == "" and current_file ~= "" and current_file or cwd
+
+  git.get_git_root(path_for_root, function(err_root, git_root)
+    if err_root then
+      vim.schedule(function()
+        vim.notify(err_root, vim.log.levels.ERROR)
+      end)
+      return
+    end
+
+    local actual_target = target or "HEAD"
+    git.get_merge_base(base, actual_target, git_root, function(err_mb, merge_base)
+      if err_mb then
+        vim.schedule(function()
+          vim.notify(err_mb, vim.log.levels.ERROR)
+        end)
+        return
+      end
+
+      git.get_commit_list(base .. ".." .. actual_target, git_root, {}, function(_, commits)
+        commits = commits or {}
+
+        local function finish(files_by_commit)
+          vim.schedule(function()
+            local review_state = require("codediff.core.review_state")
+            review_state.load(git_root, base, actual_target, function(state)
+              -- Set up the diff tab + lifecycle session first so that the
+              -- panel's <CR> handler can call view.update() to populate the
+              -- side-by-side panes.  side_by_side.create() recognizes
+              -- mode="review" as a placeholder and creates empty panes.
+              ---@type SessionConfig
+              local placeholder = {
+                mode = "review",
+                git_root = git_root,
+                original_path = "",
+                modified_path = "",
+                original_revision = nil,
+                modified_revision = nil,
+              }
+              view.create(placeholder, "")
+
+              local render = require("codediff.ui.review.render")
+              render.create({
+                git_root = git_root,
+                commits = commits,
+                files_by_commit = files_by_commit,
+                state = state,
+              })
+            end)
+          end)
+        end
+
+        if #commits == 0 then
+          finish({})
+          return
+        end
+
+        -- Fan out per-commit file fetches; wait for all before rendering.
+        local files_by_commit = {}
+        local pending = #commits
+        for _, commit in ipairs(commits) do
+          local hash = commit.hash
+          git.get_commit_files(hash, git_root, function(_, files)
+            files_by_commit[hash] = files or {}
+            pending = pending - 1
+            if pending == 0 then
+              finish(files_by_commit)
+            end
+          end)
+        end
+      end)
+    end)
+  end)
+end
+
 -- Wrapper for merge-base single-file diff: computes merge-base first, then opens diff
 local function handle_git_diff_merge_base(base_rev, target_rev, global_opts)
   local current_file = vim.api.nvim_buf_get_name(0)
@@ -769,6 +853,18 @@ function M.vscode_diff(opts)
     end
 
     handle_history(range, file_path, flags, line_range, global_opts)
+  elseif subcommand == "review" then
+    -- :CodeDiff review base...target — three-dot syntax only
+    if #args ~= 2 then
+      vim.notify("Usage: :CodeDiff review base...target", vim.log.levels.ERROR)
+      return
+    end
+    local base, target = parse_triple_dot(args[2])
+    if not base then
+      vim.notify("review currently requires three-dot syntax: :CodeDiff review base...target", vim.log.levels.ERROR)
+      return
+    end
+    handle_review(base, target)
   elseif subcommand == "install" or subcommand == "install!" then
     -- :CodeDiff install or :CodeDiff install!
     -- Handle both :CodeDiff! install and :CodeDiff install!

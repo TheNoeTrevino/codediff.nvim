@@ -25,6 +25,11 @@ M.defaults = {
     conflict_sign_resolved = nil, -- Resolved conflict sign (default: Comment -> #6e7681)
     conflict_sign_accepted = nil, -- Accepted side sign (default: GitSignsAdd -> DiagnosticSignOk -> #3fb950)
     conflict_sign_rejected = nil, -- Rejected side sign (default: GitSignsDelete -> DiagnosticSignError -> #f85149)
+
+    -- Review mode highlights (for :CodeDiff review base...target)
+    -- Accepts highlight group names or color values. nil = use built-in dimmed defaults.
+    review_viewed = nil, -- Files marked viewed (default: dim grey + strikethrough)
+    review_reviewed = nil, -- Commits marked reviewed (default: dim grey + italic)
   },
 
   -- Diff view behavior
@@ -79,6 +84,13 @@ M.defaults = {
     view_mode = "list", -- "list" or "tree" for files under commits
   },
 
+  -- Review panel configuration (for :CodeDiff review base...target)
+  review = {
+    position = "bottom", -- "left" or "bottom" (default: bottom, horizontal split)
+    width = 40, -- Width when position is "left" (columns)
+    height = 15, -- Height when position is "bottom" (lines)
+  },
+
   -- Keymaps
   keymaps = {
     view = {
@@ -127,6 +139,20 @@ M.defaults = {
       toggle_view_mode = "i", -- Toggle between 'list' and 'tree' views
       refresh = "R", -- Refresh history (re-fetch commits)
       -- Fold keymaps (Vim-style, apply to directory nodes only)
+      fold_open = "zo",
+      fold_open_recursive = "zO",
+      fold_close = "zc",
+      fold_close_recursive = "zC",
+      fold_toggle = "za",
+      fold_toggle_recursive = "zA",
+      fold_open_all = "zR",
+      fold_close_all = "zM",
+    },
+    review = {
+      toggle_viewed = "<Space>", -- File row: toggle viewed. Commit row: toggle reviewed.
+      select = "<CR>", -- File row: open diff at commit's parent vs commit. Commit row: toggle expand.
+      close = "q", -- Close review session
+      -- Fold keymaps (Vim-style, apply to commit nodes only)
       fold_open = "zo",
       fold_open_recursive = "zO",
       fold_close = "zc",
