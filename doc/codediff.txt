@@ -105,6 +105,33 @@ Options:
                   its parent. Accepts any git revision (HEAD, branch name,
                   commit hash) or WORKING for the current working tree.
 
+Review mode:                                          *codediff-review*
+
+PR-style review against a merge-base with persistent viewed/reviewed marks:
+>vim
+  :CodeDiff review main...feature
+  :CodeDiff review origin/main...HEAD
+<
+
+Three-dot syntax only — the diff is taken from merge-base(base, target) to
+target, so you only see changes introduced by the target branch.
+
+The panel stacks two splits in the left column: commits on top, files below.
+
+Keymaps in review mode:
+  v        Toggle file viewed (cursor on a file node)
+  r        Toggle commit reviewed (cursor on a commit node)
+  <Tab>    Switch focus between commits pane and files pane
+  <CR>     Open the diff for the node under cursor
+  q        Close the review session
+
+Persistence: review state is saved under stdpath("data")/codediff/reviews/
+keyed by (git_root, base_ref, target_ref) and survives across sessions.
+
+Auto-invalidation: viewed marks are silently cleared on reopen if a file's
+blob hash at the target ref has changed since the mark was set — so a
+force-push or new commits only reset the files that actually changed.
+
 Git merge tool:
 >sh
   git config --global merge.tool codediff

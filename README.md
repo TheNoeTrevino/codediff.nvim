@@ -438,6 +438,35 @@ The history panel shows a list of commits. Each commit can be expanded to show i
 **History Keymaps:**
 - `i` - Toggle between list and tree view for files under commits
 
+### Review Mode
+
+PR-style review of a feature branch against its merge-base, with persistent viewed/reviewed marks across sessions (BitBucket/GitHub style):
+
+```vim
+" Review feature against its merge-base with main
+:CodeDiff review main...feature
+
+" Review against a remote branch
+:CodeDiff review origin/main...HEAD
+```
+
+Three-dot syntax is required — the diff is taken from `merge-base(main, feature)` to `feature`, so you only see changes introduced by the feature branch.
+
+The review panel stacks two splits in the left column:
+- **Commits pane** (top) — every commit in `base..target` with checkbox for reviewed state
+- **Files pane** (bottom) — every file changed against the merge-base with checkbox for viewed state
+
+**Review Keymaps:**
+- `v` — toggle file viewed (on a file node)
+- `r` — toggle commit reviewed (on a commit node)
+- `<Tab>` — switch focus between commits pane and files pane
+- `<CR>` — open the diff for the node under cursor
+- `q` — close the review session
+
+**Persistence:** Review state is saved under `vim.fn.stdpath("data") .. "/codediff/reviews/"` keyed by `(git_root, base_ref, target_ref)` and survives across Neovim sessions.
+
+**Auto-invalidation:** When you reopen a review, each viewed file's blob hash at the target ref is compared to the hash stored when you marked it viewed. If the file content has changed (e.g., the feature branch has new commits, or it was force-pushed), the viewed mark is silently cleared so you can re-review only what changed.
+
 ### Git Merge Tool
 
 Use CodeDiff as your git merge tool for resolving conflicts:
