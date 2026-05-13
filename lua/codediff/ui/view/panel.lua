@@ -90,4 +90,18 @@ function M.setup_history(tabpage, session_config, original_win, modified_win, or
   setup_keymaps_fn(tabpage, original_bufnr, modified_bufnr)
 end
 
+--- No-op stub for review mode panel setup.
+--- The review render module owns its own UI lifecycle; this placeholder
+--- ensures mode-dispatch code can call setup_review without crashing.
+---@param tabpage number
+---@param session_config SessionConfig
+---@param original_win number
+---@param modified_win number
+function M.setup_review(tabpage, session_config, original_win, modified_win)
+  if not (session_config.mode == "review") then
+    return
+  end
+  -- Review mode UI is owned by codediff.ui.review.render — nothing to do here.
+end
+
 return M

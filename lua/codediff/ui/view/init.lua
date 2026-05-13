@@ -23,7 +23,7 @@ local function get_layout(session_config, tabpage)
 end
 
 ---@class SessionConfig
----@field mode "standalone"|"explorer"|"history"
+---@field mode "standalone"|"explorer"|"history"|"review"
 ---@field git_root string?
 ---@field original_path string
 ---@field modified_path string

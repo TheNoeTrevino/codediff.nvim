@@ -49,6 +49,8 @@ function M.create(session_config, filetype, on_ready)
 
   local is_history_placeholder = session_config.mode == "history" and session_config.history_data
 
+  local is_review_placeholder = session_config.mode == "review"
+
   local original_win, modified_win, original_info, modified_info, initial_buf
 
   -- Split command: Use explicit positioning to ignore user's splitright setting
@@ -56,9 +58,9 @@ function M.create(session_config, filetype, on_ready)
   -- We want modified (new) on RIGHT when original_position == "left"
   local split_cmd = config.options.diff.original_position == "right" and "leftabove vsplit" or "rightbelow vsplit"
 
-  if is_explorer_placeholder or is_history_placeholder then
-    -- Explorer/History mode: Create empty split panes, skip buffer loading
-    -- Panel will populate via first file selection
+  if is_explorer_placeholder or is_history_placeholder or is_review_placeholder then
+    -- Explorer/History/Review mode: Create empty split panes, skip buffer loading
+    -- Panel will populate via first file selection (review render owns its UI)
     initial_buf = vim.api.nvim_get_current_buf()
     original_win = vim.api.nvim_get_current_win()
     vim.cmd(split_cmd)
@@ -132,8 +134,8 @@ function M.create(session_config, filetype, on_ready)
     vim.wo[modified_win][opt] = val
   end
 
-  -- For explorer placeholder, create minimal session without rendering
-  if is_explorer_placeholder or is_history_placeholder then
+  -- For explorer/history/review placeholder, create minimal session without rendering
+  if is_explorer_placeholder or is_history_placeholder or is_review_placeholder then
     -- Create minimal lifecycle session for explorer/history (update will populate it)
     lifecycle.create_session(
       tabpage,
@@ -362,11 +364,12 @@ function M.create(session_config, filetype, on_ready)
     end
   end
 
-  -- Setup panels (explorer sidebar, history panel)
+  -- Setup panels (explorer sidebar, history panel, review stub)
   panel.setup_explorer(tabpage, session_config, original_win, modified_win)
   panel.setup_history(tabpage, session_config, original_win, modified_win, original_info.bufnr, modified_info.bufnr, function(tp, ob, mb)
     setup_all_keymaps(tp, ob, mb, false)
   end)
+  panel.setup_review(tabpage, session_config, original_win, modified_win)
 
   -- Emit CodeDiffOpen User autocmd
   vim.api.nvim_exec_autocmds("User", {

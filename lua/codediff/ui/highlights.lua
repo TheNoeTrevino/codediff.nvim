@@ -6,6 +6,7 @@ local config = require("codediff.config")
 M.ns_highlight = vim.api.nvim_create_namespace("codediff-highlight")
 M.ns_filler = vim.api.nvim_create_namespace("codediff-filler")
 M.ns_conflict = vim.api.nvim_create_namespace("codediff-conflict")
+M.ns_review = vim.api.nvim_create_namespace("codediff-review")
 
 -- Helper function to adjust color brightness
 local function adjust_brightness(color, factor)
@@ -181,6 +182,22 @@ function M.setup()
 
   vim.api.nvim_set_hl(0, "CodeDiffStatDeletions", {
     link = "DiagnosticError",
+    default = true,
+  })
+
+  -- Review: viewed file — dimmed foreground + strikethrough so it reads as "done"
+  vim.api.nvim_set_hl(0, "CodeDiffReviewViewed", {
+    fg = 0x6c7086,
+    ctermfg = base256_greyscale(8),
+    strikethrough = true,
+    default = true,
+  })
+
+  -- Review: reviewed commit — slightly different shade (warmer dim), italic for distinction
+  vim.api.nvim_set_hl(0, "CodeDiffReviewReviewed", {
+    fg = 0x7c7a6e,
+    ctermfg = base256_greyscale(10),
+    italic = true,
     default = true,
   })
 

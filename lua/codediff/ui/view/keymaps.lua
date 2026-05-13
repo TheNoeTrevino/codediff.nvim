@@ -15,6 +15,7 @@ function M.setup_all_keymaps(tabpage, original_bufnr, modified_bufnr, is_explore
   -- Check mode context
   local session = lifecycle.get_session(tabpage)
   local is_history_mode = session and session.mode == "history"
+  local is_review_mode = session and session.mode == "review"
   local is_inline = session and session.layout == "inline"
 
   -- Helper: Quit diff view
@@ -622,8 +623,8 @@ function M.setup_all_keymaps(tabpage, original_bufnr, modified_bufnr, is_explore
     end, { desc = "Show keymap help" })
   end
 
-  -- File navigation (]f, [f) - works in both explorer and history mode
-  if is_explorer_mode or is_history_mode then
+  -- File navigation (]f, [f) - works in explorer, history, and review mode
+  if is_explorer_mode or is_history_mode or is_review_mode then
     if keymaps.next_file then
       lifecycle.set_tab_keymap(tabpage, "n", keymaps.next_file, navigation.next_file, { desc = "Next file" })
     end
