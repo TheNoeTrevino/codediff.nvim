@@ -548,24 +548,30 @@ end
 -- rev1: original revision (e.g., commit hash)
 -- rev2: modified revision (e.g., commit hash)
 -- git_root: absolute path to git repository root
--- callback: function(err, status_result)
+-- callback: function(err, status_result) where status_result is:
+-- {
+--   unstaged = { { path, status, old_path, insertions, deletions } },
+--   staged = {},
+-- }
+-- insertions/deletions are absent for binary files.
 function M.get_diff_revisions(rev1, rev2, git_root, callback)
-  run_git_async({ "diff", "--name-status", "-M", rev1, rev2 }, { cwd = git_root }, function(err, output)
-    if err then
-      callback(err, nil)
+  local pending = 2
+  local done = false
+  local results = {}
+
+  local function on_done()
+    if done then
       return
     end
+    done = true
 
     local result = {
       unstaged = {},
       staged = {},
     }
 
-    -- For revision comparison, we treat everything as "unstaged" for explorer compatibility
-    -- But to keep explorer compatible, we'll put them in 'staged' as they are committed changes
-    -- relative to each other.
-
-    for line in output:gmatch("[^\r\n]+") do
+    -- For revision comparison, we treat everything as "unstaged" for explorer compatibility.
+    for line in results.name_status:gmatch("[^\r\n]+") do
       if #line > 0 then
         local parts = vim.split(line, "\t")
         if #parts >= 2 then
@@ -588,7 +594,40 @@ function M.get_diff_revisions(rev1, rev2, git_root, callback)
       end
     end
 
+    local stats_map = parse_numstat(results.numstat or "")
+    for _, record in ipairs(result.unstaged) do
+      local stats = stats_map[record.path]
+      if stats then
+        record.insertions = stats.insertions
+        record.deletions = stats.deletions
+      end
+    end
+
     callback(nil, result)
+  end
+
+  local function decrement()
+    pending = pending - 1
+    if pending == 0 then
+      on_done()
+    end
+  end
+
+  run_git_async({ "diff", "--name-status", "-M", rev1, rev2 }, { cwd = git_root }, function(err, output)
+    if err then
+      if not done then
+        done = true
+        callback(err, nil)
+      end
+      return
+    end
+    results.name_status = output
+    decrement()
+  end)
+
+  run_git_async({ "diff", "--numstat", "-M", rev1, rev2 }, { cwd = git_root }, function(err, output)
+    results.numstat = err and "" or output
+    decrement()
   end)
 end
 
@@ -1163,6 +1202,34 @@ function M.get_rev_candidates(git_root)
   end
 
   return candidates
+end
+
+-- Get the blob hash for a file at a given revision (async)
+-- rev: git revision (e.g., "HEAD", commit hash, branch name)
+-- path: relative path from git root
+-- git_root: absolute path to git repository root
+-- callback: function(err, hash_string)
+--   hash_string is nil (not an error) when the file does not exist at that revision.
+--   Format from `git ls-tree`: "<mode> <type> <hash>\t<path>"
+function M.get_blob_hash(rev, path, git_root, callback)
+  run_git_async({ "ls-tree", rev, "--", path }, { cwd = git_root }, function(err, output)
+    if err then
+      callback(err, nil)
+      return
+    end
+
+    local line = vim.trim(output)
+    if line == "" then
+      -- File does not exist at this revision; return nil hash without an error.
+      callback(nil, nil)
+      return
+    end
+
+    -- Format: "<mode> <type> <hash>\t<path>"
+    -- Split on whitespace to get the third token (the blob hash).
+    local hash = line:match("^%S+%s+%S+%s+(%S+)")
+    callback(nil, hash)
+  end)
 end
 
 return M
